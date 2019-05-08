@@ -856,6 +856,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.DOZE_TRIGGER_DOUBLETAP), false, this,
                     UserHandle.USER_ALL);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.SWIPE_TO_SCREENSHOT), false, this,
+                    UserHandle.USER_ALL);
             updateSettings();
         }
 
@@ -890,6 +893,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mDefaultDisplayPolicy.setPersistentVrModeEnabled(enabled);
         }
     };
+
+    // Swipe to screenshot
+    private SwipeToScreenshotListener mSwipeToScreenshot;
+    private boolean haveEnableGesture = false;
 
     private void handleRingerChordGesture() {
         if (mRingerToggleChord == VOLUME_HUSH_OFF) {
@@ -1615,7 +1622,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 || mShortPressOnStemPrimaryBehavior != SHORT_PRESS_PRIMARY_NOTHING;
     }
 
-    private void interceptScreenshotChord(int source, long pressDelay) {
+    private void interceptScreenshotChord(int type, int source, long pressDelay) {
         mHandler.removeMessages(MSG_SCREENSHOT_CHORD);
         // arg2 is unused, but necessary to insure we call the correct method signature
         // since the screenshot source is read from message.arg1
@@ -2102,6 +2109,21 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     context, minHorizontal, maxHorizontal, minVertical, maxVertical, maxRadius);
         }
 
+        mSwipeToScreenshot = new SwipeToScreenshotListener(context, new SwipeToScreenshotListener.Callbacks() {
+            @Override
+            public void onSwipeThreeFinger() {
+                IDreamManager dreamManager = getDreamManager();
+                try {
+                    if (dreamManager != null && dreamManager.isDreaming()) {
+                        return;
+                    }
+                } catch (RemoteException ignored) {
+                }
+                interceptScreenshotChord(
+                        TAKE_SCREENSHOT_FULLSCREEN, SCREENSHOT_KEY_OTHER, 0 /*pressDelay*/);
+            }
+        });
+
         mHandler = new PolicyHandler();
         mWakeGestureListener = new MyWakeGestureListener(mContext, mHandler);
         mSettingsObserver = new SettingsObserver(mHandler);
@@ -2337,7 +2359,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                         void execute() {
                             mPowerKeyHandled = true;
                             interceptScreenshotChord(
-                                    SCREENSHOT_KEY_CHORD, getScreenshotChordLongPressDelay());
+                                    SCREENSHOT_KEY_CHORD, 0, getScreenshotChordLongPressDelay());
                         }
                         @Override
                         void cancel() {
@@ -2639,6 +2661,18 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 com.android.internal.R.integer.config_triplePressOnStemPrimaryBehavior);
     }
 
+    private void enableSwipeThreeFingerGesture(boolean enable){
+        if (enable) {
+            if (haveEnableGesture) return;
+            haveEnableGesture = true;
+            mWindowManagerFuncs.registerPointerEventListener(mSwipeToScreenshot, DEFAULT_DISPLAY);
+        } else {
+            if (!haveEnableGesture) return;
+            haveEnableGesture = false;
+            mWindowManagerFuncs.unregisterPointerEventListener(mSwipeToScreenshot, DEFAULT_DISPLAY);
+        }
+    }
+
     public void updateSettings() {
         ContentResolver resolver = mContext.getContentResolver();
         boolean updateRotation = false;
@@ -2692,6 +2726,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 mWakeGestureEnabledSetting = wakeGestureEnabledSetting;
                 updateWakeGestureListenerLp();
             }
+
+            // Three Finger Gesture
+            boolean threeFingerGesture = Settings.System.getIntForUser(resolver,
+                    Settings.System.SWIPE_TO_SCREENSHOT, 0, UserHandle.USER_CURRENT) == 1;
+            enableSwipeThreeFingerGesture(threeFingerGesture);
 
             // use screen off timeout setting as the timeout for the lockscreen
             mLockScreenTimeout = Settings.System.getIntForUser(resolver,
@@ -3071,7 +3110,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 break;
             case KeyEvent.KEYCODE_S:
                 if (down && event.isMetaPressed() && event.isCtrlPressed() && repeatCount == 0) {
-                    interceptScreenshotChord(SCREENSHOT_KEY_OTHER, 0 /*pressDelay*/);
+                    interceptScreenshotChord(SCREENSHOT_KEY_OTHER, 0, 0L /*pressDelay*/);
                     return key_consumed;
                 }
                 break;
@@ -3467,7 +3506,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 break;
             case KeyEvent.KEYCODE_SYSRQ:
                 if (down && repeatCount == 0) {
-                    interceptScreenshotChord(SCREENSHOT_KEY_OTHER, 0 /*pressDelay*/);
+                    interceptScreenshotChord(SCREENSHOT_KEY_OTHER, 0, 0L /*pressDelay*/);
                 }
                 return true;
         }
