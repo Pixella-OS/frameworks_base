@@ -51,4 +51,6 @@
     <dimen name="bluetooth_dialog_active_device_bottom_margin">4dp</dimen>
     <dimen name="bluetooth_dialog_toggle_height">56dp</dimen>
 
+    <!-- Screen Record -->
+    <dimen name="screenrecord_dot_size">48dp</dimen>
 </resources>
